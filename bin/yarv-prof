@@ -1,0 +1,152 @@
+#!/usr/bin/env ruby
+
+if !ARGV.index('-d') then
+  require 'rubygems'
+else
+  Encoding.default_external = 'UTF-8'
+  ['..', '../lib'].each do |path|
+    $LOAD_PATH.unshift File.expand_path(File.join(File.dirname(__FILE__), path))
+  end
+  ARGV.delete('-d')
+end
+
+require 'yarv-prof'
+require 'optparse'
+require 'enumerable/statistics'
+
+class DatasetBase
+  attr_reader :instructions, :total_time, :total_count, :measure_mode
+  def initialize
+    @total_time = 0
+    @total_count = 0
+  end
+
+  def add_entry(insn, elapsed_time)
+    @total_time = @total_time + elapsed_time
+    @total_count = @total_count + 1
+  end
+
+  def set_measure_mode(label)
+    @measure_mode = label == "vtimestamp" ? "cputime" : "walltime"
+  end
+end
+
+class SummaryDataset < DatasetBase
+  def initialize
+    @instructions = {}
+    super
+  end
+
+  def add_entry(insn, elapsed_time)
+    @instructions[insn] = [] if @instructions[insn].nil?
+    @instructions[insn] << elapsed_time
+    super
+  end
+end
+
+class TimeSeriesDataset < DatasetBase
+  def initialize
+    @instructions = []
+    super
+  end
+
+  def add_entry(insn, elapsed_time)
+    @instructions << [insn, elapsed_time]
+    super
+  end
+end
+
+class DumpLogParser
+  attr_reader :dataset
+  def initialize(filename, dataset)
+    @filename = filename
+    @dataset = dataset
+  end
+  def parse(insn=nil)
+    prev = nil
+    File.read(@filename).each_line{|line|
+      line.chomp!
+      next if line.empty?
+      if line.split(",")[0] == "insn" then
+        @dataset.set_measure_mode line.split(",")[1]
+      else
+        if !prev.nil? && (insn.nil? || insn==prev[0])
+          @dataset.add_entry prev[0], (line.split(",")[1].to_i - prev[1].to_i)
+        end
+        prev = line.split(",")
+      end
+    }
+  end
+
+end
+
+class Presentation
+  attr_accessor :filename, :csv, :raw, :insn
+
+  def make
+    @parser = DumpLogParser.new(@filename, @raw || @insn ? TimeSeriesDataset.new : SummaryDataset.new )
+    @parser.parse(@insn)
+  end
+
+  def display
+    ds = @parser.dataset
+    if ds.class == TimeSeriesDataset
+      if @csv
+        puts "insn,#{ds.measure_mode}"
+        ds.instructions.each{|e|
+          puts "%s,%d" % [e[0], e[1]]
+        }
+      else
+        puts "isns".ljust(30)+ds.measure_mode.rjust(15)
+        puts "-"*45
+        ds.instructions.each{|e|
+          puts ("%s" % e[0]).ljust(30) + ("%d" % e[1]).rjust(15)
+        }
+      end
+    else
+      if @csv
+        puts "insn,count,total_#{ds.measure_mode},mean,variance,stdev"
+        ds.instructions.each{|insn, values|
+          puts "%s,%d,%d,%.0f,%.0f,%.0f" % [insn, values.count, values.inject(:+), values.mean, values.variance, values.stdev]
+        }
+      else
+        puts "total number of instruction calls: #{ds.total_count}"
+        presentation = []
+        puts "insn".ljust(30) + "count".rjust(14) + "total_#{ds.measure_mode}".rjust(20) + "mean".rjust(10) + "variance".rjust(16) + "stdev".rjust(9)
+        puts "-"*99
+        ds.instructions.each{|insn, values|
+          #presentation << [values.inject(:+), "%s:\n    count=%d(%d%s), total=%d(%d%s), mean=%.0f, variance=%.0f, stdev=%.0f\n" % [insn, values.count, (values.count*100/@parser.dataset.total_count), "%%", values.inject(:+), (values.inject(:+)*100/@parser.dataset.total_time), "%%", values.mean, values.variance, values.stdev] ]
+          presentation << [values.inject(:+), "%s%s%s%s%s%s\n" % [
+            insn.ljust(30),
+            ("%d(%d%s)" % [values.count, (values.count*100/ds.total_count), "%%"]).rjust(15),
+            ("%d(%d%s)" % [values.inject(:+), (values.inject(:+)*100/ds.total_time), "%%"]).rjust(21),
+            ("%.0f" % values.mean).rjust(10),
+            ("%.0f" % values.variance).rjust(16),
+            ("%.0f" % values.stdev).rjust(9)
+          ]]
+        }
+        presentation.sort{|a,b|
+          b[0] <=> a[0]
+        }.each{|e|
+          printf e[1]
+        }
+      end
+    end
+  end
+end
+
+if ARGV.empty?
+  raise "Use -h option to know what commands are available"
+else
+  report = Presentation.new
+  Options = OptionParser.new do |opts|
+    opts.on("-v", "--version", "Print version") {|v| puts YarvProf::VERSION; exit 0}
+    opts.on("--load=FILENAME", "Load .dump file") {|filename| report.filename = filename}
+    opts.on("--csv", "Report with csv format") {report.csv = true}
+    opts.on("--raw", "Show raw log data with time series alignment") {report.raw = true}
+    opts.on("--insn=VALUE", "Show a specific instruction only") { |insn| report.insn = insn }
+  end
+  Options.parse!(ARGV)
+  report.make
+  report.display
+end
