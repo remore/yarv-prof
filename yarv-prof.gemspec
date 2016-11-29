@@ -15,7 +15,7 @@ Gem::Specification.new do |s|
   s.executables = 'yarv-prof'
 
   s.summary = 'A DTrace-based YARV profiler'
-  s.description = 'A DTrace-based YARV profiler'
+  s.description = "yarv-prof does nothing special to profile YARV behavior, just heavily depends on Ruby's DTrace probes support. If you are looking for something useful to utilize Ruby's DTrace feature, yarv-prof may work for you."
   s.license = 'MIT'
 
   s.add_dependency "enumerable-statistics"

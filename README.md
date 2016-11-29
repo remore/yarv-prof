@@ -1,6 +1,6 @@
 ## Prerequisite
 
-- DTrace must be installed on your System
+- DTrace must be installed on your system
 - You need to edit MRI source code as follows(since pre-compiled MRI doesn't provide `insn` probe, you need to enable this  manually, as of Ruby2.4.0)
 
 ```
@@ -40,21 +40,34 @@ branchunless                           1(3%)           15042(1%)     15042      
 
 ## Usage
 
+#### Step1: Recording
+
+This is the sample usage of YarvProf in your code.
+
 ```
 YarvProf.start(clock: :cpu, out:'~/log/')
 p :hello
 YarvProf.end
 ```
 
-This is the sample usage of YarvProf in your code. YarvProf#start can take 2 keyword args, one is for the flag to switch measurement mode (:cpu or :wall), and the other one is to specify the target directory the dump file will be seved in.
+YarvProf#start can take following 3 optional keyword args.
+
+- `clock` is for the flag to switch measurement mode(`:cpu` or `:wall`)
+- `out` is to specify the target directory path which the dump file will be stored in.
+- `opt` is to give arbitrary CLI option when yarv-prof trigger dtrace command(e.g. `opt:'-x bufsize=20m'`).
+
+#### Step2: Reporting
+
+Here is the sample usage of yarv-prof CLI command, which is specifically designed to parse and view dumped data.
 
 ```
 $ yarvprof --load ./result.dump --insn getlocal_OP__WC__1
 ```
 
-And this is the sample usage of yarv-prof CLI command, which is specifically designed to parse and view dumped data. yarv-prof command can take following options.
+yarv-prof command can take following options.
 
 ```
+$ yarvprof -h
 Usage: yarv-prof [options]
     -v, --version                    Print version
         --load=FILENAME              Load .dump file
